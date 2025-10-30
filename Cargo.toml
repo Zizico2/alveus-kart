@@ -1,0 +1,9 @@
+[package]
+name = "alveus-kart"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+avian3d = "0.4.0"
+bevy = "0.17.2"
+bevy_third_person_camera_2 = "0.1.8"
