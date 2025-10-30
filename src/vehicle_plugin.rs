@@ -1,39 +1,41 @@
 use avian3d::{math::*, prelude::*};
-use bevy::{ecs::query::Has, prelude::*};
+use bevy::prelude::*;
 
 pub struct CharacterControllerPlugin;
 
 impl Plugin for CharacterControllerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<MovementAction>().add_systems(
-            Update,
-            (
-                keyboard_input,
-                // TODO
-                // gamepad_input,
-                update_grounded,
-                movement,
-                // apply_linear_speed,
-                // apply_angular_damping,
-                // apply_movement_damping,
-                linear_velocity_max_speed,
-                update_transform_from_direction,
-            )
-                .chain(),
-        );
+        app.add_message::<TurningAction>()
+            .add_message::<AccelerationAction>()
+            .add_systems(
+                Update,
+                (
+                    keyboard_input,
+                    // TODO
+                    update_grounded,
+                    acceleration,
+                    direction,
+                    update_linear_velocity_from_direction,
+                    linear_velocity_max_speed,
+                    update_transform_from_direction,
+                )
+                    .chain(),
+            );
     }
 }
 
-
 #[derive(Message)]
-pub enum MovementAction {
+pub enum TurningAction {
     TurnLeft,
     TurnRight,
-    SpeedUp,
-    SlowDownOrReverse,
-    NoSpeedInput,
-    // Move(Vector2),
     // Jump,
+}
+
+#[derive(Message)]
+pub enum AccelerationAction {
+    Accelerate,
+    DecelerateOrReverse,
+    NoAcceleration,
 }
 
 /// A marker component indicating that an entity is using a character controller.
@@ -162,36 +164,24 @@ impl CharacterControllerBundle {
 
 /// Sends [`MovementAction`] events based on keyboard input.
 fn keyboard_input(
-    mut movement_writer: MessageWriter<MovementAction>,
+    mut turning_action_writer: MessageWriter<TurningAction>,
+    mut acceleration_action_writer: MessageWriter<AccelerationAction>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
 ) {
     if keyboard_input.any_pressed([KeyCode::KeyW, KeyCode::ArrowUp]) {
-        movement_writer.write(MovementAction::SpeedUp);
+        acceleration_action_writer.write(AccelerationAction::Accelerate);
     } else if keyboard_input.any_pressed([KeyCode::KeyS, KeyCode::ArrowDown]) {
-        movement_writer.write(MovementAction::SlowDownOrReverse);
+        acceleration_action_writer.write(AccelerationAction::DecelerateOrReverse);
     } else {
-        movement_writer.write(MovementAction::NoSpeedInput);
+        acceleration_action_writer.write(AccelerationAction::NoAcceleration);
     }
 
-    
     if keyboard_input.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]) {
-        movement_writer.write(MovementAction::TurnLeft);
+        turning_action_writer.write(TurningAction::TurnLeft);
     }
     if keyboard_input.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]) {
-        movement_writer.write(MovementAction::TurnRight);
+        turning_action_writer.write(TurningAction::TurnRight);
     }
-
-    // let horizontal = right as i8 - left as i8;
-    // let vertical = up as i8 - down as i8;
-    // let direction = Vector2::new(horizontal as Scalar, vertical as Scalar).clamp_length_max(1.0);
-
-    // if direction != Vector2::ZERO {
-    //     movement_writer.write(MovementAction::Move(direction));
-    // }
-
-    // if keyboard_input.just_pressed(KeyCode::Space) {
-    //     movement_writer.write(MovementAction::Jump);
-    // }
 }
 
 // TODO
@@ -240,96 +230,73 @@ fn update_grounded(
     }
 }
 
-/// Responds to [`MovementAction`] events and moves character controllers accordingly.
-fn movement(
-    time: Res<Time>,
-    mut movement_reader: MessageReader<MovementAction>,
-    mut controllers: Query<(
-        // &MovementAcceleration,
-        // &JumpImpulse,
-        // &mut LinearSpeed,
-        // &mut LinearVelocity,
-        // &mut AngularVelocity,
-        &mut Direction,
-        // &Transform,
-        &mut ConstantLinearAcceleration,
-        Has<Grounded>,
-    )>,
+fn acceleration(
+    mut acceleration_reader: MessageReader<AccelerationAction>,
+    mut controllers: Query<
+        (&Direction, &mut ConstantLinearAcceleration),
+        With<CharacterController>,
+    >,
 ) {
-    // Precision is adjusted so that the example works with
-    // both the `f32` and `f64` features. Otherwise you don't need this.
-    let delta_time = time.delta_secs_f64().adjust_precision();
-
-    for event in movement_reader.read() {
-        for (
-            // movement_acceleration,
-            // jump_impulse,
-            // mut linear_speed,
-            // mut linear_velocity,
-            // mut angular_velocity,
-            mut direction,
-            mut constant_linear_acceleration,
-            // transform,
-            _is_grounded,
-        ) in &mut controllers
-        {
+    for event in acceleration_reader.read() {
+        for (direction, mut constant_linear_acceleration) in &mut controllers {
             match event {
-                MovementAction::SpeedUp => {
-                    // linear_speed.0 += movement_acceleration.0 * delta_time * 10.0;
+                AccelerationAction::Accelerate => {
+                    // Apply acceleration in the direction the character is facing
                     constant_linear_acceleration.0 =
                         Vector3::new(direction.0.x, 0.0, direction.0.y) * 100.0;
                 }
-                MovementAction::SlowDownOrReverse => {
-                    // linear_speed.0 -= movement_acceleration.0 * delta_time * 10.0;
-
+                AccelerationAction::DecelerateOrReverse => {
+                    // Apply reverse acceleration
                     let reverse_dir = direction.0.rotate(Vec2::from_angle(PI));
                     constant_linear_acceleration.0 =
                         Vector3::new(reverse_dir.x, 0.0, reverse_dir.y) * 100.0;
                 }
-                MovementAction::TurnLeft => {
-                    // angular_velocity.y += 100.0 * delta_time;
-                    direction.0 =
-                        Dir2::new(direction.0.rotate(Vec2::from_angle(-2.0 * delta_time)))
-                            .expect("TODO");
-                }
-                MovementAction::TurnRight => {
-                    // angular_velocity.y -= 100.0 * delta_time;
-                    direction.0 = Dir2::new(direction.0.rotate(Vec2::from_angle(2.0 * delta_time)))
-                        .expect("TODO");
-                }
-                MovementAction::NoSpeedInput => {
-                    // linear_speed.0 *= 0.8_f32.powf(delta_time * 60.0);
+                AccelerationAction::NoAcceleration => {
+                    // No acceleration
                     constant_linear_acceleration.0 = Vector3::ZERO;
-                } // MovementAction::Move(direction) => {
-                  //     linear_velocity.x += direction.x * movement_acceleration.0 * delta_time;
-                  //     linear_velocity.z -= direction.y * movement_acceleration.0 * delta_time;
-                  // }
-                  // MovementAction::Jump => {
-                  //     if is_grounded {
-                  //         linear_velocity.y = jump_impulse.0;
-                  //     }
-                  // }
+                }
             }
-
-            // info!("linear_velocity: {:?}", linear_velocity);
-            // let forward = transform.forward();
-
-            // **linear_velocity = forward * linear_speed.0;
-
-            // linear_velocity.x = forward.x * linear_velocity.0.x;
-            // linear_velocity.z = forward.z * linear_velocity.0.z;
-            // info!("new_linear_velocity: {:?}", linear_velocity);
         }
     }
 }
 
-// fn apply_linear_speed(mut query: Query<(&LinearSpeed, &mut LinearVelocity, &Direction)>) {
-//     for (linear_speed, mut linear_velocity, direction) in &mut query {
-//         let linear_velocity_vec_2 = direction.0 * linear_speed.0;
-//         linear_velocity.x = linear_velocity_vec_2.x;
-//         linear_velocity.z = linear_velocity_vec_2.y;
-//     }
-// }
+fn direction(
+    time: Res<Time>,
+    mut turning_reader: MessageReader<TurningAction>,
+    mut controllers: Query<(&mut Direction, &mut LinearVelocity), With<CharacterController>>,
+) {
+    let delta_secs = time.delta_secs_f64().adjust_precision();
+
+    for event in turning_reader.read() {
+        for (mut direction, mut linear_velocity) in &mut controllers {
+            match event {
+                TurningAction::TurnLeft => {
+                    direction.0 =
+                        Dir2::new(direction.0.rotate(Vec2::from_angle(-2.0 * delta_secs)))
+                            .expect("TODO");
+                }
+                TurningAction::TurnRight => {
+                    direction.0 = Dir2::new(direction.0.rotate(Vec2::from_angle(2.0 * delta_secs)))
+                        .expect("TODO");
+                }
+            }
+        }
+    }
+}
+
+fn update_linear_velocity_from_direction(
+    mut query: Query<
+        (&Direction, &mut LinearVelocity),
+        (With<CharacterController>, Changed<Direction>),
+    >,
+) {
+    for (direction, mut linear_velocity) in &mut query {
+        linear_velocity.0 =
+            linear_velocity
+                .0
+                .project_onto(Vector3::new(direction.0.x, 0.0, direction.0.y));
+    }
+}
 
 // TODO: this should be at the top level, not in the vehicle plugin
 fn update_transform_from_direction(
@@ -340,31 +307,6 @@ fn update_transform_from_direction(
         transform.look_to(forward, Vec3::Y);
     }
 }
-
-// fn apply_movement_damping(
-//     mut query: Query<(
-//         &MovementDampingFactor,
-//         &mut LinearVelocity,
-//         // &mut LinearSpeed,
-//     )>,
-// ) {
-//     for (damping_factor, mut linear_velocity) in &mut query {
-//         // We could use `LinearDamping`, but we don't want to dampen movement along the Y axis
-//         linear_velocity.x *= damping_factor.0;
-//         linear_velocity.z *= damping_factor.0;
-//         // linear_speed.0 *= damping_factor.0;
-//     }
-// }
-
-/// Applies angular damping to character controllers.
-// fn apply_angular_damping(
-//     mut query: Query<(&mut AngularVelocity, &mut LinearVelocity, &Transform)>,
-// ) {
-//     for (mut angular_velocity, mut linear_velocity, transform) in &mut query {
-//         angular_velocity.0 *= 0.4;
-//         // **linear_velocity = linear_velocity.project_onto(*transform.forward());
-//     }
-// }
 
 fn linear_velocity_max_speed(mut query: Query<(&mut LinearVelocity, &CharacterController)>) {
     for (mut linear_velocity, _) in &mut query {
