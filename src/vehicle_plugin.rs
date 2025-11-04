@@ -66,7 +66,7 @@ impl Default for KartCharacter {
             rigid_body: RigidBody::Dynamic,
             controller: TnuaController::default(),
             locked_axes: LockedAxes::new().lock_rotation_x().lock_rotation_z(),
-            direction: Direction(-Dir2::Y),
+            direction: Direction(Dir2::NEG_Y),
         }
     }
 }
@@ -291,7 +291,9 @@ fn acceleration(
                     let desired_velocity = Vec3::new(direction.0.x, 0.0, direction.0.y) * 10.0;
                     controller.basis(TnuaBuiltinWalk {
                         desired_velocity,
-                        desired_forward: None,
+                        desired_forward: Some(
+                            Dir3::new(desired_velocity.normalize()).expect("ERR"),
+                        ),
                         acceleration: 60.0,
                         float_height: 2.0,
                         ..Default::default()
@@ -302,13 +304,16 @@ fn acceleration(
                     let desired_velocity = -Vec3::new(direction.0.x, 0.0, direction.0.y) * 5.0;
                     controller.basis(TnuaBuiltinWalk {
                         desired_velocity,
-                        desired_forward: None,
+                        desired_forward: Some(
+                            Dir3::new(desired_velocity.normalize()).expect("ERR"),
+                        ),
                         acceleration: 60.0,
                         float_height: 2.0,
                         ..Default::default()
                     });
                 }
                 AccelerationAction::NoAcceleration => {
+                    info!("no acceleration!");
                     controller.basis(TnuaBuiltinWalk {
                         desired_velocity: Vec3::ZERO,
                         desired_forward: None,
@@ -360,14 +365,17 @@ fn direction(mut turning_reader: MessageReader<TurningAction>, mut query: Query<
         for mut direction in &mut query {
             match event {
                 TurningAction::TurnLeft => {
+                    info!("turning left");
                     direction.0 =
                         Dir2::new(Vec2::from_angle(-0.01).rotate(*direction.0)).expect("ERR");
                 }
                 TurningAction::TurnRight => {
+                    info!("turning right");
                     direction.0 =
                         Dir2::new(Vec2::from_angle(0.01).rotate(*direction.0)).expect("ERR");
                 }
                 TurningAction::None => {
+                    info!("not turning");
                     // controller.basis(TnuaBuiltinWalk {
                     //     // desired_velocity: basis.desired_velocity.rotate_y(0.0),
                     //     ..basis

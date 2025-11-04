@@ -27,6 +27,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
+    info!("spawning track");
     let track = asset_server.load(GltfAssetLabel::Scene(0).from_asset("karting_track.glb"));
     commands.spawn((
         SceneRoot(track),
@@ -39,21 +40,21 @@ fn setup(
         Friction::new(0.4),
     ));
 
+    
+    info!("spawning player kart");
     let player_transform = Transform::from_translation(Vec3::ZERO);
-    let player_forward = player_transform.forward();
-
     let player = commands
         .spawn((
             Kart,
-            // SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("Kart.glb"))),
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("Kart.glb"))),
             // 1 x 1 x 1 cube for testing
-            Mesh3d(meshes.add(Mesh::from(Cuboid {
-                half_size: Vec3::new(0.5, 0.5, 0.5),
-            }))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: RED.into(),
-                ..Default::default()
-            })),
+            // Mesh3d(meshes.add(Mesh::from(Cuboid {
+            //     half_size: Vec3::new(0.5, 0.5, 0.5),
+            // }))),
+            // MeshMaterial3d(materials.add(StandardMaterial {
+            //     base_color: RED.into(),
+            //     ..Default::default()
+            // })),
             Collider::cuboid(1.0, 1.0, 1.0),
             player_transform,
             KartCharacter::default(),
@@ -73,6 +74,7 @@ fn setup(
         ))
         .id();
 
+    info!("spawning light and camera");
     commands.spawn((
         PointLight {
             shadows_enabled: true,
