@@ -1,8 +1,8 @@
 use avian3d::{math::Scalar, prelude::*};
-use bevy::prelude::*;
+use bevy::{color::palettes::css::RED, prelude::*};
 use bevy_third_person_camera_2::*;
 
-use crate::vehicle_plugin::{CharacterControllerBundle, CharacterControllerPlugin};
+use crate::vehicle_plugin::{CharacterControllerPlugin, KartCharacter};
 
 mod vehicle_plugin;
 
@@ -27,13 +27,16 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    let track = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Track.glb"));
+    let track = asset_server.load(GltfAssetLabel::Scene(0).from_asset("karting_track.glb"));
     commands.spawn((
         SceneRoot(track),
         Transform::from_translation(Vec3::new(0.0, -30.0, 0.0)),
         ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+        // ColliderConstructorHierarchy::new(ColliderConstructor::ConvexHullFromMesh),
+        CollisionMargin(0.1),
+        Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
         RigidBody::Static,
-        // Friction::new(0.4),
+        Friction::new(0.4),
     ));
 
     let player_transform = Transform::from_translation(Vec3::ZERO);
@@ -42,20 +45,31 @@ fn setup(
     let player = commands
         .spawn((
             Kart,
-            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("Kart.glb"))),
+            // SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("Kart.glb"))),
+            // 1 x 1 x 1 cube for testing
+            Mesh3d(meshes.add(Mesh::from(Cuboid {
+                half_size: Vec3::new(0.5, 0.5, 0.5),
+            }))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: RED.into(),
+                ..Default::default()
+            })),
+            Collider::cuboid(1.0, 1.0, 1.0),
             player_transform,
+            KartCharacter::default(),
             // RigidBody::Kinematic,
-            CharacterControllerBundle::new(Collider::capsule(0.4, 1.0)).with_movement(
-                30.0,
-                0.92,
-                7.0,
-                (30.0 as Scalar).to_radians(),
-                Dir2::new(player_forward.xz().normalize()).expect("TODO"),
-            ),
+            // CharacterControllerBundle::new(Collider::sphere(0.4)).with_movement(
+            //     // 30.0,
+            //     // 0.92,
+            //     // 7.0,
+            //     (90 as Scalar).to_radians(),
+            //     Dir2::new(player_forward.xz().normalize()).expect("TODO"),
+            // ),
             // Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
             // Friction::new(0.4),
-            Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
-            GravityScale(2.0),
+            // Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
+            // LockedAxes::new().lock_rotation_z(),
+            // GravityScale(2.0),
         ))
         .id();
 

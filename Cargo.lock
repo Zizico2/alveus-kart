@@ -137,7 +137,10 @@ version = "0.1.0"
 dependencies = [
  "avian3d",
  "bevy",
+ "bevy-tnua",
+ "bevy-tnua-avian3d",
  "bevy_third_person_camera_2",
+ "glam 0.30.9",
 ]
 
 [[package]]
@@ -374,6 +377,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "342f7e9335416dc98642d5747c4ed8a6ad9f7244a36d5b2b7a1b7910e4d8f524"
 dependencies = [
  "bevy_internal",
+]
+
+[[package]]
+name = "bevy-tnua"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eab78782a624f66db0ab3c5153bd01facfc250a53452ea3cde968bda3e7e24bf"
+dependencies = [
+ "bevy",
+ "bevy-tnua-physics-integration-layer",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "bevy-tnua-avian3d"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ddaa9eebc8179b18ef99c50d650abc323448d0bbcd30c73cfe48d8857946cb9"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "bevy-tnua-physics-integration-layer",
+]
+
+[[package]]
+name = "bevy-tnua-physics-integration-layer"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cb6de3b2578e2c823e0a6bdbeb44b57a62697e72699ec06a6c1fcf800bbd332"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]
@@ -985,7 +1019,7 @@ dependencies = [
  "approx",
  "bevy_reflect",
  "derive_more",
- "glam 0.30.8",
+ "glam 0.30.9",
  "itertools 0.14.0",
  "libm",
  "rand",
@@ -1160,7 +1194,7 @@ dependencies = [
  "downcast-rs 2.0.2",
  "erased-serde",
  "foldhash 0.2.0",
- "glam 0.30.8",
+ "glam 0.30.9",
  "inventory",
  "petgraph",
  "serde",
@@ -2191,7 +2225,7 @@ checksum = "02ba239319a4f60905966390f5e52799d868103a533bb7e27822792332504ddd"
 dependencies = [
  "const_panic",
  "encase_derive",
- "glam 0.30.8",
+ "glam 0.30.9",
  "thiserror 2.0.17",
 ]
 
@@ -2581,9 +2615,9 @@ checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
 
 [[package]]
 name = "glam"
-version = "0.30.8"
+version = "0.30.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e12d847aeb25f41be4c0ec9587d624e9cd631bc007a8fd7ce3f5851e064c6460"
+checksum = "bd47b05dddf0005d850e5644cae7f2b14ac3df487979dbfff3b56f20b1a6ae46"
 dependencies = [
  "approx",
  "bytemuck",
@@ -2599,7 +2633,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a321595865557fc1ec990c8eb289b25f0cb1d058997cc0034a17f507704f3183"
 dependencies = [
  "bevy_reflect",
- "glam 0.30.8",
+ "glam 0.30.9",
 ]
 
 [[package]]
@@ -2799,7 +2833,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29a164ceff4500f2a72b1d21beaa8aa8ad83aec2b641844c659b190cb3ea2e0b"
 dependencies = [
  "constgebra",
- "glam 0.30.8",
+ "glam 0.30.9",
  "tinyvec",
 ]
 
@@ -2820,6 +2854,8 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3223,7 +3259,7 @@ dependencies = [
  "glam 0.27.0",
  "glam 0.28.0",
  "glam 0.29.3",
- "glam 0.30.8",
+ "glam 0.30.9",
  "matrixmultiply",
  "nalgebra-macros",
  "num-complex",
@@ -5996,4 +6032,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "zune-core"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f423a2c17029964870cfaabb1f13dfab7d092a62a29a89264f4d36990ca414a"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.4.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c9e525af0a6a658e031e95f14b7f889976b74a11ba0eca5a5fc9ac8a1c43a6a"
+dependencies = [
+ "zune-core",
 ]
