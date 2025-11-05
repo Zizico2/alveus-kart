@@ -1,7 +1,6 @@
-use std::time::Duration;
-
 use bevy::prelude::*;
 use bevy_tnua::math::{AdjustPrecision, AsF32, Float, Quaternion, Vector3, float_consts};
+use std::time::Duration;
 
 use bevy_tnua::TnuaBasisContext;
 use bevy_tnua::util::rotation_arc_around_axis;
@@ -224,11 +223,6 @@ impl TnuaBasis for TnuaBuiltinKart {
             .effective_velocity
             .reject_from(ctx.up_direction.adjust_precision());
 
-        let desired_boost = self.desired_velocity - velocity_on_plane;
-
-        // DELETED: The old safe_direction_coefficient, direction_change_factor,
-        // relevant_acceleration_limit, and max_acceleration calculations.
-
         state.vertical_velocity = if let Some(climb_vectors) = &climb_vectors {
             state.effective_velocity.dot(climb_vectors.direction)
                 * climb_vectors
@@ -239,13 +233,14 @@ impl TnuaBasis for TnuaBuiltinKart {
         };
 
         // #################################################################
-        // ## NEW: Dual Acceleration Logic
+        // ## NEW: Kart-Specific Dual Acceleration Logic
         // #################################################################
-        
+
         let (walk_acceleration, walk_boost) = if considered_in_air {
             // ############
             // ## IN AIR ## - Use original logic with air_acceleration
             // ############
+            let desired_boost = self.desired_velocity - velocity_on_plane;
             let safe_direction_coefficient = self
                 .desired_velocity
                 .normalize_or_zero()
@@ -254,60 +249,103 @@ impl TnuaBasis for TnuaBuiltinKart {
             let max_acceleration = direction_change_factor * self.air_acceleration;
 
             if self.desired_velocity == Vector3::ZERO {
-                // When stopping, prefer a boost
-                (Vector3::ZERO, desired_boost.clamp_length_max(ctx.frame_duration * max_acceleration))
+                (
+                    Vector3::ZERO,
+                    desired_boost.clamp_length_max(ctx.frame_duration * max_acceleration),
+                )
             } else {
-                // When accelerating, prefer an acceleration
-                ((desired_boost / ctx.frame_duration).clamp_length_max(max_acceleration), Vector3::ZERO)
+                (
+                    (desired_boost / ctx.frame_duration).clamp_length_max(max_acceleration),
+                    Vector3::ZERO,
+                )
             }
         } else {
             // ##############
-            // ## ON GROUND ## - Use new dual-acceleration logic
+            // ## ON GROUND ## - Use new kart logic
             // ##############
 
-            // Decompose the boost vector
-            let current_dir = velocity_on_plane.normalize_or_zero();
-            
-            let (scaling_boost_vec, turning_boost_vec) = if current_dir == Vector3::ZERO {
-                // If we are not moving, the entire boost is "scaling"
-                (desired_boost, Vector3::ZERO)
+            // Get the kart's current orientation (forward/right) on the ground plane
+            // We use NEG_Z for forward, matching the `Turning` logic at the end of this function
+            let kart_forward = ctx
+                .tracker
+                .rotation
+                .mul_vec3(Vector3::NEG_Z)
+                .reject_from(*ctx.up_direction)
+                .normalize_or_zero();
+
+            // Fallback in case kart is pointing straight up
+            let (kart_forward, _kart_right) = if kart_forward == Vector3::ZERO {
+                // Cannot determine orientation, use velocity as fallback
+                (velocity_on_plane.normalize_or_zero(), Vector3::ZERO)
             } else {
-                // Project the boost into parallel (scaling) and perpendicular (turning) components
-                let scaling = desired_boost.project_onto(current_dir);
-                let turning = desired_boost - scaling;
-                (scaling, turning)
+                let kart_right = kart_forward.cross(*ctx.up_direction).normalize_or_zero();
+                (kart_forward, kart_right)
             };
 
-            if self.desired_velocity == Vector3::ZERO && slipping_vector.is_none()
-            {
-                // When stopping, prefer a boost (fixes issue #39)
-                // We only use linear acceleration for stopping.
-                let boost = scaling_boost_vec.clamp_length_max(ctx.frame_duration * self.acceleration);
-                (Vector3::ZERO, boost)
+            // Calculate the total change in velocity we want
+            let desired_boost = self.desired_velocity - velocity_on_plane;
+
+            // Decompose the boost into forward (throttle/brake) and lateral (grip/turning) components
+            let fwd_boost_vec = desired_boost.project_onto(kart_forward);
+            let lat_boost_vec = desired_boost.reject_from(kart_forward);
+
+            // Check if we are trying to reverse while still moving forward
+            let current_fwd_speed = velocity_on_plane.dot(kart_forward);
+            let desired_fwd_speed = self.desired_velocity.dot(kart_forward);
+            let is_braking_to_reverse = (current_fwd_speed > 0.1) && (desired_fwd_speed < 0.0);
+
+            if self.desired_velocity == Vector3::ZERO && slipping_vector.is_none() {
+                // SPECIAL CASE: Braking to a full stop (Issue #39)
+                // We use boost for a crisp stop.
+                // We *do* want high-grip lateral braking here (to stop drifting).
+                let fwd_boost =
+                    fwd_boost_vec.clamp_length_max(ctx.frame_duration * self.acceleration);
+                let lat_boost =
+                    lat_boost_vec.clamp_length_max(ctx.frame_duration * self.turning_acceleration);
+                (Vector3::ZERO, fwd_boost + lat_boost)
             } else {
-                // When accelerating, prefer an acceleration (fixes issue #34)
-                let scaling_accel = (scaling_boost_vec / ctx.frame_duration).clamp_length_max(self.acceleration);
-                let turning_accel = (turning_boost_vec / ctx.frame_duration).clamp_length_max(self.turning_acceleration);
-                (scaling_accel + turning_accel, Vector3::ZERO)
+                // NORMAL CASE: Accelerating, turning, or reversing
+                let fwd_accel =
+                    (fwd_boost_vec / ctx.frame_duration).clamp_length_max(self.acceleration);
+
+                let lat_accel = if is_braking_to_reverse {
+                    // We are braking to reverse.
+                    // **DO NOT** apply high-grip turning acceleration.
+                    // This prevents the "U-turn" motion.
+                    // We still apply *some* lateral braking if the kart is drifting,
+                    // but we cap it at the *low* throttle acceleration.
+                    (lat_boost_vec / ctx.frame_duration).clamp_length_max(self.acceleration)
+                } else {
+                    // We are accelerating or turning normally.
+                    // Apply high-grip turning acceleration.
+                    (lat_boost_vec / ctx.frame_duration).clamp_length_max(self.turning_acceleration)
+                };
+
+                (fwd_accel + lat_accel, Vector3::ZERO)
             }
         };
 
+        // ... (The rest of this block is the same) ...
+
         // Now, apply climb vector projection (if on ground and not slipping)
-        let (walk_acceleration, walk_boost) = 
+        let (walk_acceleration, walk_boost) =
             if let (Some(climb_vectors), None) = (&climb_vectors, slipping_vector) {
-                (climb_vectors.project(walk_acceleration), climb_vectors.project(walk_boost))
+                (
+                    climb_vectors.project(walk_acceleration),
+                    climb_vectors.project(walk_boost),
+                )
             } else {
                 (walk_acceleration, walk_boost)
             };
-        
+
         // Now, calculate slipping_boost (this logic is unchanged from original)
         let slipping_boost = 'slipping_boost: {
+            // ... (slipping boost logic is unchanged) ...
             let Some(slipping_vector) = slipping_vector else {
                 break 'slipping_boost Vector3::ZERO;
             };
             let vertical_velocity = if 0.0 <= state.vertical_velocity {
-                ctx.tracker.gravity.dot(ctx.up_direction.adjust_precision())
-                    * ctx.frame_duration
+                ctx.tracker.gravity.dot(ctx.up_direction.adjust_precision()) * ctx.frame_duration
             } else {
                 state.vertical_velocity
             };
@@ -320,16 +358,15 @@ impl TnuaBasis for TnuaBuiltinKart {
 
             let required_veloicty_in_slipping_direction =
                 slipping_per_vertical_unit.adjust_precision() * -vertical_velocity;
-            
-            // CHANGED: Apply slipping boost relative to the velocity we *will* have
-            // (including potential boost)
-            let expected_velocity = velocity_on_plane + walk_acceleration * ctx.frame_duration + walk_boost;
-            
+
+            let expected_velocity =
+                velocity_on_plane + walk_acceleration * ctx.frame_duration + walk_boost;
+
             let expected_velocity_in_slipping_direction =
                 expected_velocity.dot(slipping_direction.adjust_precision());
 
-            let diff = required_veloicty_in_slipping_direction
-                - expected_velocity_in_slipping_direction;
+            let diff =
+                required_veloicty_in_slipping_direction - expected_velocity_in_slipping_direction;
 
             if diff <= 0.0 {
                 break 'slipping_boost Vector3::ZERO;
@@ -337,7 +374,7 @@ impl TnuaBasis for TnuaBuiltinKart {
 
             slipping_direction.adjust_precision() * diff
         };
-        
+
         // Combine all forces
         let walk_vel_change = TnuaVelChange {
             acceleration: walk_acceleration,
@@ -349,6 +386,7 @@ impl TnuaBasis for TnuaBuiltinKart {
         // #################################################################
 
         let upward_impulse: TnuaVelChange = 'upward_impulse: {
+            // ... (upward_impulse logic is unchanged) ...
             let should_disable_due_to_slipping =
                 slipping_vector.is_some() && state.vertical_velocity <= 0.0;
             for _ in 0..2 {
@@ -402,7 +440,7 @@ impl TnuaBasis for TnuaBuiltinKart {
             - impulse_to_offset;
         state.running_velocity = new_velocity.reject_from(ctx.up_direction.adjust_precision());
 
-        // Tilt
+        // Tilt (unchanged)
 
         let torque_to_fix_tilt = {
             let tilted_up = ctx.tracker.rotation.mul_vec3(Vector3::Y);
@@ -416,7 +454,7 @@ impl TnuaBasis for TnuaBuiltinKart {
             angular_velocity_diff.clamp_length_max(ctx.frame_duration * self.tilt_offset_angacl)
         };
 
-        // Turning
+        // Turning (unchanged)
 
         let desired_angvel = if let Some(desired_forward) = self.desired_forward {
             let current_forward = ctx.tracker.rotation.mul_vec3(Vector3::NEG_Z);
@@ -432,11 +470,9 @@ impl TnuaBasis for TnuaBuiltinKart {
             0.0
         };
 
-        // NOTE: This is the regular axis system so we used the configured up.
+        // ... (rest of function is unchanged) ...
         let existing_angvel = ctx.tracker.angvel.dot(ctx.up_direction.adjust_precision());
 
-        // This is the torque. Should it be clamped by an acceleration? From experimenting with
-        // this I think it's meaningless and only causes bugs.
         let torque_to_turn = desired_angvel - existing_angvel;
 
         let existing_turn_torque = torque_to_fix_tilt.dot(ctx.up_direction.adjust_precision());
@@ -446,6 +482,8 @@ impl TnuaBasis for TnuaBuiltinKart {
             torque_to_fix_tilt + torque_to_turn * ctx.up_direction.adjust_precision(),
         );
     }
+
+    // ... (rest of Trait impl is unchanged) ...
 
     fn proximity_sensor_cast_range(&self, _state: &Self::State) -> Float {
         self.float_height + self.cling_distance
