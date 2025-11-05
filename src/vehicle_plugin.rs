@@ -284,7 +284,7 @@ fn acceleration(
 ) {
     for event in acceleration_reader.read() {
         for (mut controller, direction) in &mut query {
-            let unsigned_desired_velocity = Vec3::new(direction.0.x, 0.0, direction.0.y) * 20.0;
+            let unsigned_desired_velocity = Vec3::new(direction.0.x, 0.0, direction.0.y) * 100.0;
             match event {
                 AccelerationAction::Accelerate => {
                     info!("acceleration!");
@@ -294,9 +294,9 @@ fn acceleration(
                         desired_forward: Some(
                             Dir3::new(unsigned_desired_velocity.normalize()).expect("ERR"),
                         ),
-                        acceleration: 60.0,
+                        acceleration: 40.0,
                         float_height: 2.0,
-                        ..Default::default()
+                        ..TnuaBuiltinWalk::default()
                     });
                 }
                 AccelerationAction::DecelerateOrReverse => {
@@ -307,7 +307,7 @@ fn acceleration(
                         desired_forward: Some(
                             Dir3::new(unsigned_desired_velocity.normalize()).expect("ERR"),
                         ),
-                        acceleration: 60.0,
+                        acceleration: 20.0,
                         float_height: 2.0,
                         ..Default::default()
                     });
@@ -318,7 +318,7 @@ fn acceleration(
                         desired_velocity: Vec3::ZERO,
                         desired_forward: None,
                         // TODO: think about acceleration behavior when no input
-                        acceleration: 5.0,
+                        acceleration: 70.0,
                         float_height: 2.0,
                         ..Default::default()
                     });

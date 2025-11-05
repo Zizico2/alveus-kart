@@ -5,6 +5,7 @@ use bevy_third_person_camera_2::*;
 use crate::vehicle_plugin::{CharacterControllerPlugin, KartCharacter};
 
 mod vehicle_plugin;
+mod kart_basis;
 
 fn main() {
     App::new()
