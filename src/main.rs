@@ -1,5 +1,5 @@
-use avian3d::{math::Scalar, prelude::*};
-use bevy::{color::palettes::css::RED, ecs::world, prelude::*, state::commands};
+use avian3d::prelude::*;
+use bevy::{camera::Exposure, prelude::*};
 use bevy_third_person_camera_2::*;
 
 use crate::vehicle_plugin::{CharacterControllerPlugin, KartCharacter};
@@ -20,11 +20,10 @@ fn main() {
 #[derive(Component)]
 struct Kart;
 
-/// set up a simple 3D scene
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    // mut meshes: ResMut<Assets<Mesh>>,
+    // mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
     info!("spawning track");
@@ -52,17 +51,9 @@ fn setup(
         ))
         .id();
 
-    info!("spawning light and camera");
-    commands.spawn((
-        PointLight {
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0),
-    ));
-
     commands.spawn((
         Camera3d::default(),
+        Exposure { ev100: 7.5 },
         CameraOffset(Vec3::new(0.0, -5.0, -15.0)),
         ThirdPersonCamera::aimed_at(player),
     ));

@@ -1,5 +1,4 @@
 use avian3d::prelude::*;
-use avian3d::{math::*, prelude::*};
 use bevy::prelude::*;
 use bevy_tnua::prelude::*;
 use bevy_tnua_avian3d::prelude::*;
