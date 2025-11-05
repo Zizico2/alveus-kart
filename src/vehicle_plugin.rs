@@ -3,6 +3,8 @@ use bevy::prelude::*;
 use bevy_tnua::prelude::*;
 use bevy_tnua_avian3d::prelude::*;
 
+use crate::kart_basis::TnuaBuiltinKart;
+
 pub struct CharacterControllerPlugin;
 
 impl Plugin for CharacterControllerPlugin {
@@ -289,36 +291,39 @@ fn acceleration(
                 AccelerationAction::Accelerate => {
                     info!("acceleration!");
                     let desired_velocity = unsigned_desired_velocity;
-                    controller.basis(TnuaBuiltinWalk {
+                    controller.basis(TnuaBuiltinKart {
                         desired_velocity,
                         desired_forward: Some(
                             Dir3::new(unsigned_desired_velocity.normalize()).expect("ERR"),
                         ),
                         acceleration: 40.0,
+                        turning_acceleration: 500.0,
                         float_height: 2.0,
-                        ..TnuaBuiltinWalk::default()
+                        ..TnuaBuiltinKart::default()
                     });
                 }
                 AccelerationAction::DecelerateOrReverse => {
                     info!("deceleration!");
                     let desired_velocity = -unsigned_desired_velocity;
-                    controller.basis(TnuaBuiltinWalk {
+                    controller.basis(TnuaBuiltinKart {
                         desired_velocity,
                         desired_forward: Some(
                             Dir3::new(unsigned_desired_velocity.normalize()).expect("ERR"),
                         ),
                         acceleration: 20.0,
+                        turning_acceleration: 500.0,
                         float_height: 2.0,
                         ..Default::default()
                     });
                 }
                 AccelerationAction::NoAcceleration => {
                     info!("no acceleration!");
-                    controller.basis(TnuaBuiltinWalk {
+                    controller.basis(TnuaBuiltinKart {
                         desired_velocity: Vec3::ZERO,
                         desired_forward: None,
                         // TODO: think about acceleration behavior when no input
                         acceleration: 70.0,
+                        turning_acceleration: 500.0,
                         float_height: 2.0,
                         ..Default::default()
                     });
@@ -376,7 +381,7 @@ fn direction(mut turning_reader: MessageReader<TurningAction>, mut query: Query<
                 }
                 TurningAction::None => {
                     info!("not turning");
-                    // controller.basis(TnuaBuiltinWalk {
+                    // controller.basis(TnuaBuiltinKart {
                     //     // desired_velocity: basis.desired_velocity.rotate_y(0.0),
                     //     ..basis
                     // });

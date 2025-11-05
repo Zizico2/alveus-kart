@@ -7,33 +7,9 @@ use bevy_tnua::TnuaBasisContext;
 use bevy_tnua::util::rotation_arc_around_axis;
 use bevy_tnua::{TnuaBasis, TnuaVelChange};
 
-/// The most common [basis](TnuaBasis) - walk around as a floating capsule.
-///
-/// This basis implements the floating capsule character controller explained in
-/// <https://youtu.be/qdskE8PJy6Q>. It controls both the floating and the movement. Most of its
-/// fields have sane defaults, except:
-///
-/// * [`float_height`](Self::float_height) - this field defaults to 0.0, which means the character
-///   will not float. Set it to be higher than the distance from the center of the entity to the
-///   bottom of the collider.
-/// * [`desired_velocity`](Self::desired_velocity) - while leaving this as as the default
-///   `Vector3::ZERO`, doing so would mean that the character will not move.
-/// * [`desired_forward`](Self::desired_forward) - leaving this is the default `None` will mean
-///   that Tnua will not attempt to fix the character's rotation along the up axis.
-///
-///   This is fine if rotation along the up axis is locked (Rapier and Avian only support locking
-///   cardinal axes, but the up direction is based on the gravity which means it defaults to the Y
-///   axis so it usually works out).
-///
-///   This is also fine for 2D games (or games with 3D graphics and 2D physics) played from side
-///   view where the physics engine cannot rotate the character along the up axis.
-///
-///   But if the physics engine is free to rotate the character's rigid body along the up axis,
-///   leaving `desired_forward` as the default `Vector3::ZERO` may cause the character to spin
-///   uncontrollably when it contacts other colliders. Unless, of course, some other mechanism
-///   prevents that.
+// CHANGED: Renamed struct to TnuaBuiltinKart
 #[derive(Clone, Debug)]
-pub struct TnuaBuiltinWalk {
+pub struct TnuaBuiltinKart {
     /// The direction (in the world space) and speed to accelerate to.
     ///
     /// Tnua assumes that this vector is orthogonal to the up dierction.
@@ -77,12 +53,17 @@ pub struct TnuaBuiltinWalk {
     /// get launched upward at great speed.
     pub spring_dampening: Float,
 
-    /// The acceleration for horizontal movement.
+    /// The acceleration for horizontal movement (forward and backward).
     ///
-    /// Note that this is the acceleration for starting the horizontal motion and for reaching the
-    /// top speed. When braking or changing direction the acceleration is greater, up to 2 times
-    /// `acceleration` when doing a 180 turn.
+    /// This controls how quickly the kart speeds up or brakes.
     pub acceleration: Float,
+
+    // NEW: Acceleration for turning.
+    /// The acceleration for horizontal turning movement.
+    ///
+    /// This controls how "grippy" the tires are, allowing the kart
+    /// to change its velocity direction quickly without sliding.
+    pub turning_acceleration: Float,
 
     /// The acceleration for horizontal movement while in the air.
     ///
@@ -121,7 +102,8 @@ pub struct TnuaBuiltinWalk {
     pub max_slope: Float,
 }
 
-impl Default for TnuaBuiltinWalk {
+// CHANGED: Renamed to TnuaBuiltinKart
+impl Default for TnuaBuiltinKart {
     fn default() -> Self {
         Self {
             desired_velocity: Vector3::ZERO,
@@ -131,6 +113,7 @@ impl Default for TnuaBuiltinWalk {
             spring_strength: 400.0,
             spring_dampening: 1.2,
             acceleration: 60.0,
+            turning_acceleration: 120.0, // NEW: Added turning_acceleration default
             air_acceleration: 20.0,
             coyote_time: 0.15,
             free_fall_extra_gravity: 60.0,
@@ -142,9 +125,12 @@ impl Default for TnuaBuiltinWalk {
     }
 }
 
-impl TnuaBasis for TnuaBuiltinWalk {
-    const NAME: &'static str = "TnuaBuiltinWalk";
-    type State = TnuaBuiltinWalkState;
+// CHANGED: Renamed to TnuaBuiltinKart
+impl TnuaBasis for TnuaBuiltinKart {
+    // CHANGED: Renamed
+    const NAME: &'static str = "TnuaBuiltinKart";
+    // CHANGED: Renamed
+    type State = TnuaBuiltinKartState;
 
     fn apply(
         &self,
@@ -240,18 +226,8 @@ impl TnuaBasis for TnuaBuiltinWalk {
 
         let desired_boost = self.desired_velocity - velocity_on_plane;
 
-        let safe_direction_coefficient = self
-            .desired_velocity
-            .normalize_or_zero()
-            .dot(velocity_on_plane.normalize_or_zero());
-        let direction_change_factor = 1.5 - 0.5 * safe_direction_coefficient;
-
-        let relevant_acceleration_limit = if considered_in_air {
-            self.air_acceleration
-        } else {
-            self.acceleration
-        };
-        let max_acceleration = direction_change_factor * relevant_acceleration_limit;
+        // DELETED: The old safe_direction_coefficient, direction_change_factor,
+        // relevant_acceleration_limit, and max_acceleration calculations.
 
         state.vertical_velocity = if let Some(climb_vectors) = &climb_vectors {
             state.effective_velocity.dot(climb_vectors.direction)
@@ -262,65 +238,115 @@ impl TnuaBasis for TnuaBuiltinWalk {
             0.0
         };
 
-        let walk_vel_change = if self.desired_velocity == Vector3::ZERO && slipping_vector.is_none()
-        {
-            // When stopping, prefer a boost to be able to reach a precise stop (see issue #39)
-            let walk_boost = desired_boost.clamp_length_max(ctx.frame_duration * max_acceleration);
-            let walk_boost = if let Some(climb_vectors) = &climb_vectors {
-                climb_vectors.project(walk_boost)
+        // #################################################################
+        // ## NEW: Dual Acceleration Logic
+        // #################################################################
+        
+        let (walk_acceleration, walk_boost) = if considered_in_air {
+            // ############
+            // ## IN AIR ## - Use original logic with air_acceleration
+            // ############
+            let safe_direction_coefficient = self
+                .desired_velocity
+                .normalize_or_zero()
+                .dot(velocity_on_plane.normalize_or_zero());
+            let direction_change_factor = 1.5 - 0.5 * safe_direction_coefficient;
+            let max_acceleration = direction_change_factor * self.air_acceleration;
+
+            if self.desired_velocity == Vector3::ZERO {
+                // When stopping, prefer a boost
+                (Vector3::ZERO, desired_boost.clamp_length_max(ctx.frame_duration * max_acceleration))
             } else {
-                walk_boost
-            };
-            TnuaVelChange::boost(walk_boost)
+                // When accelerating, prefer an acceleration
+                ((desired_boost / ctx.frame_duration).clamp_length_max(max_acceleration), Vector3::ZERO)
+            }
         } else {
-            // When accelerating, prefer an acceleration because the physics backends treat it
-            // better (see issue #34)
-            let walk_acceleration =
-                (desired_boost / ctx.frame_duration).clamp_length_max(max_acceleration);
-            let walk_acceleration =
-                if let (Some(climb_vectors), None) = (&climb_vectors, slipping_vector) {
-                    climb_vectors.project(walk_acceleration)
-                } else {
-                    walk_acceleration
-                };
+            // ##############
+            // ## ON GROUND ## - Use new dual-acceleration logic
+            // ##############
 
-            let slipping_boost = 'slipping_boost: {
-                let Some(slipping_vector) = slipping_vector else {
-                    break 'slipping_boost Vector3::ZERO;
-                };
-                let vertical_velocity = if 0.0 <= state.vertical_velocity {
-                    ctx.tracker.gravity.dot(ctx.up_direction.adjust_precision())
-                        * ctx.frame_duration
-                } else {
-                    state.vertical_velocity
-                };
-
-                let Ok((slipping_direction, slipping_per_vertical_unit)) =
-                    Dir3::new_and_length(slipping_vector.f32())
-                else {
-                    break 'slipping_boost Vector3::ZERO;
-                };
-
-                let required_veloicty_in_slipping_direction =
-                    slipping_per_vertical_unit.adjust_precision() * -vertical_velocity;
-                let expected_velocity = velocity_on_plane + walk_acceleration * ctx.frame_duration;
-                let expected_velocity_in_slipping_direction =
-                    expected_velocity.dot(slipping_direction.adjust_precision());
-
-                let diff = required_veloicty_in_slipping_direction
-                    - expected_velocity_in_slipping_direction;
-
-                if diff <= 0.0 {
-                    break 'slipping_boost Vector3::ZERO;
-                }
-
-                slipping_direction.adjust_precision() * diff
+            // Decompose the boost vector
+            let current_dir = velocity_on_plane.normalize_or_zero();
+            
+            let (scaling_boost_vec, turning_boost_vec) = if current_dir == Vector3::ZERO {
+                // If we are not moving, the entire boost is "scaling"
+                (desired_boost, Vector3::ZERO)
+            } else {
+                // Project the boost into parallel (scaling) and perpendicular (turning) components
+                let scaling = desired_boost.project_onto(current_dir);
+                let turning = desired_boost - scaling;
+                (scaling, turning)
             };
-            TnuaVelChange {
-                acceleration: walk_acceleration,
-                boost: slipping_boost,
+
+            if self.desired_velocity == Vector3::ZERO && slipping_vector.is_none()
+            {
+                // When stopping, prefer a boost (fixes issue #39)
+                // We only use linear acceleration for stopping.
+                let boost = scaling_boost_vec.clamp_length_max(ctx.frame_duration * self.acceleration);
+                (Vector3::ZERO, boost)
+            } else {
+                // When accelerating, prefer an acceleration (fixes issue #34)
+                let scaling_accel = (scaling_boost_vec / ctx.frame_duration).clamp_length_max(self.acceleration);
+                let turning_accel = (turning_boost_vec / ctx.frame_duration).clamp_length_max(self.turning_acceleration);
+                (scaling_accel + turning_accel, Vector3::ZERO)
             }
         };
+
+        // Now, apply climb vector projection (if on ground and not slipping)
+        let (walk_acceleration, walk_boost) = 
+            if let (Some(climb_vectors), None) = (&climb_vectors, slipping_vector) {
+                (climb_vectors.project(walk_acceleration), climb_vectors.project(walk_boost))
+            } else {
+                (walk_acceleration, walk_boost)
+            };
+        
+        // Now, calculate slipping_boost (this logic is unchanged from original)
+        let slipping_boost = 'slipping_boost: {
+            let Some(slipping_vector) = slipping_vector else {
+                break 'slipping_boost Vector3::ZERO;
+            };
+            let vertical_velocity = if 0.0 <= state.vertical_velocity {
+                ctx.tracker.gravity.dot(ctx.up_direction.adjust_precision())
+                    * ctx.frame_duration
+            } else {
+                state.vertical_velocity
+            };
+
+            let Ok((slipping_direction, slipping_per_vertical_unit)) =
+                Dir3::new_and_length(slipping_vector.f32())
+            else {
+                break 'slipping_boost Vector3::ZERO;
+            };
+
+            let required_veloicty_in_slipping_direction =
+                slipping_per_vertical_unit.adjust_precision() * -vertical_velocity;
+            
+            // CHANGED: Apply slipping boost relative to the velocity we *will* have
+            // (including potential boost)
+            let expected_velocity = velocity_on_plane + walk_acceleration * ctx.frame_duration + walk_boost;
+            
+            let expected_velocity_in_slipping_direction =
+                expected_velocity.dot(slipping_direction.adjust_precision());
+
+            let diff = required_veloicty_in_slipping_direction
+                - expected_velocity_in_slipping_direction;
+
+            if diff <= 0.0 {
+                break 'slipping_boost Vector3::ZERO;
+            }
+
+            slipping_direction.adjust_precision() * diff
+        };
+        
+        // Combine all forces
+        let walk_vel_change = TnuaVelChange {
+            acceleration: walk_acceleration,
+            boost: walk_boost + slipping_boost,
+        };
+
+        // #################################################################
+        // ## END of new logic
+        // #################################################################
 
         let upward_impulse: TnuaVelChange = 'upward_impulse: {
             let should_disable_due_to_slipping =
@@ -459,7 +485,8 @@ impl TnuaBasis for TnuaBuiltinWalk {
     }
 }
 
-impl TnuaBuiltinWalk {
+// CHANGED: Renamed
+impl TnuaBuiltinKart {
     /// Calculate the vertical spring force that this basis would need to apply assuming its
     /// vertical distance from the vertical distance it needs to be at equals the `spring_offset`
     /// argument.
@@ -468,7 +495,8 @@ impl TnuaBuiltinWalk {
     /// [`TnuaBuiltinCrouch`](crate::builtins::TnuaBuiltinCrouch) may rely on it.
     pub fn spring_force(
         &self,
-        state: &TnuaBuiltinWalkState,
+        // CHANGED: Renamed
+        state: &TnuaBuiltinKartState,
         ctx: &TnuaBasisContext,
         spring_offset: Float,
     ) -> TnuaVelChange {
@@ -496,8 +524,9 @@ struct StandingOnState {
     entity_linvel: Vector3,
 }
 
+// CHANGED: Renamed
 #[derive(Default, Clone, Debug)]
-pub struct TnuaBuiltinWalkState {
+pub struct TnuaBuiltinKartState {
     airborne_timer: Option<Timer>,
     /// The current distance of the character from the distance its supposed to float at.
     pub standing_offset: Vector3,
@@ -512,7 +541,8 @@ pub struct TnuaBuiltinWalkState {
     pub running_velocity: Vector3,
 }
 
-impl TnuaBuiltinWalkState {
+// CHANGED: Renamed
+impl TnuaBuiltinKartState {
     /// Returns the entity that the character currently stands on.
     pub fn standing_on_entity(&self) -> Option<Entity> {
         Some(self.standing_on.as_ref()?.entity)
