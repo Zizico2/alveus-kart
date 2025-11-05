@@ -28,7 +28,7 @@ fn setup(
     asset_server: Res<AssetServer>,
 ) {
     info!("spawning track");
-    let track = asset_server.load(GltfAssetLabel::Scene(0).from_asset("karting_track.glb"));
+    let track = asset_server.load(GltfAssetLabel::Scene(0).from_asset("Track.glb"));
     commands.spawn((
         SceneRoot(track),
         Transform::from_translation(Vec3::new(0.0, -30.0, 0.0)),
@@ -76,7 +76,7 @@ fn rotate_camera(
     for (cam_transform, cam_entity) in &mut camera {
         for char_transform in &mut character {
             // make both transforms y = 0 to ignore vertical difference
-            // calculate angle difference as a Vec2
+            // calculate angle difference
             let cam_forward =
                 Vec2::new(cam_transform.forward().x, cam_transform.forward().z).normalize();
             let char_forward =
